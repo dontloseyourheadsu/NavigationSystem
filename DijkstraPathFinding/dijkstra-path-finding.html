@@ -1,0 +1,297 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Dijkstra's path finding</title>
+    <style>
+        canvas {
+            border: 1px solid black;
+        }
+        .controls {
+            margin: 10px 0;
+        }
+        #jsonInput {
+            width: 100%;
+            height: 100px;
+            margin: 10px 0;
+        }
+        .instructions {
+            margin: 10px 0;
+            padding: 10px;
+            background-color: #f0f0f0;
+            border-radius: 4px;
+        }
+        .status {
+            margin: 10px 0;
+            padding: 10px;
+            background-color: #e8f4f8;
+            border-radius: 4px;
+        }
+    </style>
+</head>
+<body>
+    <div class="instructions">
+        <strong>Instructions:</strong>
+        <ul>
+            <li>Paste your graph JSON in the textarea below</li>
+            <li>Click "Load Graph" to visualize the graph</li>
+            <li>Click on any node to select it as the start point (will highlight in green)</li>
+            <li>Click on another node to find the shortest path to it (will highlight in red)</li>
+            <li>The shortest path will be highlighted in blue</li>
+            <li>Click "Clear Selection" to remove the current path</li>
+        </ul>
+    </div>
+    <div class="controls">
+        <button id="loadBtn">Load Graph</button>
+        <button id="clearBtn">Clear Selection</button>
+    </div>
+    <div class="status" id="status">Status: Waiting for graph data...</div>
+    <textarea id="jsonInput" placeholder="Paste your graph JSON here"></textarea>
+    <canvas id="canvas" width="800" height="600"></canvas>
+</body>
+<script>
+    const canvas = document.getElementById('canvas');
+        const ctx = canvas.getContext('2d');
+        const jsonInput = document.getElementById('jsonInput');
+        const status = document.getElementById('status');
+        
+        let points = [];
+        let edges = [];
+        let startPoint = null;
+        let endPoint = null;
+        let shortestPath = [];
+        
+        class Point {
+            constructor(x, y, id) {
+                this.x = x;
+                this.y = y;
+                this.id = id;
+                this.radius = 20;
+            }
+            
+            draw() {
+                ctx.beginPath();
+                ctx.arc(this.x, this.y, this.radius, 0, Math.PI * 2);
+                
+                // Color based on selection
+                if (this === startPoint) {
+                    ctx.fillStyle = '#90EE90'; // Light green
+                } else if (this === endPoint) {
+                    ctx.fillStyle = '#FFB6C1'; // Light red
+                } else {
+                    ctx.fillStyle = '#fff';
+                }
+                
+                ctx.fill();
+                ctx.stroke();
+                
+                ctx.fillStyle = '#000';
+                ctx.textAlign = 'center';
+                ctx.textBaseline = 'middle';
+                ctx.font = '16px Arial';
+                ctx.fillText(this.id, this.x, this.y);
+            }
+            
+            contains(x, y) {
+                const dx = this.x - x;
+                const dy = this.y - y;
+                return dx * dx + dy * dy <= this.radius * this.radius;
+            }
+        }
+        
+        class Edge {
+            constructor(point1, point2, weight) {
+                this.point1 = point1;
+                this.point2 = point2;
+                this.weight = weight;
+            }
+            
+            draw(isPath) {
+                ctx.beginPath();
+                ctx.moveTo(this.point1.x, this.point1.y);
+                ctx.lineTo(this.point2.x, this.point2.y);
+                
+                // Highlight path edges
+                if (isPath) {
+                    ctx.strokeStyle = '#4169E1'; // Royal Blue
+                    ctx.lineWidth = 3;
+                } else {
+                    ctx.strokeStyle = '#000';
+                    ctx.lineWidth = 1;
+                }
+                
+                ctx.stroke();
+                ctx.strokeStyle = '#000';
+                ctx.lineWidth = 1;
+                
+                // Draw weight
+                const midX = (this.point1.x + this.point2.x) / 2;
+                const midY = (this.point1.y + this.point2.y) / 2;
+                ctx.fillStyle = '#fff';
+                ctx.fillRect(midX - 15, midY - 10, 30, 20);
+                ctx.strokeRect(midX - 15, midY - 10, 30, 20);
+                ctx.fillStyle = '#000';
+                ctx.textAlign = 'center';
+                ctx.textBaseline = 'middle';
+                ctx.fillText(this.weight, midX, midY);
+            }
+        }
+        
+        function dijkstra(start) {
+            const distances = new Map();
+            const previous = new Map();
+            const unvisited = new Set(points);
+            
+            // Initialize distances
+            points.forEach(point => {
+                distances.set(point, Infinity);
+                previous.set(point, null);
+            });
+            distances.set(start, 0);
+            
+            while (unvisited.size > 0) {
+                // Find minimum distance vertex
+                let current = null;
+                let minDistance = Infinity;
+                for (const point of unvisited) {
+                    if (distances.get(point) < minDistance) {
+                        minDistance = distances.get(point);
+                        current = point;
+                    }
+                }
+                
+                if (current === null) break;
+                unvisited.delete(current);
+                
+                // Find neighbors
+                const neighbors = edges.filter(edge => 
+                    edge.point1 === current || edge.point2 === current
+                ).map(edge => ({
+                    point: edge.point1 === current ? edge.point2 : edge.point1,
+                    weight: edge.weight
+                }));
+                
+                // Update distances
+                for (const {point, weight} of neighbors) {
+                    if (!unvisited.has(point)) continue;
+                    
+                    const alt = distances.get(current) + weight;
+                    if (alt < distances.get(point)) {
+                        distances.set(point, alt);
+                        previous.set(point, current);
+                    }
+                }
+            }
+            
+            return { distances, previous };
+        }
+        
+        function getPath(start, end, previous) {
+            const path = [];
+            let current = end;
+            
+            while (current !== null) {
+                path.unshift(current);
+                current = previous.get(current);
+            }
+            
+            return path[0] === start ? path : [];
+        }
+        
+        function getPathEdges(path) {
+            const pathEdges = [];
+            for (let i = 0; i < path.length - 1; i++) {
+                const edge = edges.find(e => 
+                    (e.point1 === path[i] && e.point2 === path[i + 1]) ||
+                    (e.point2 === path[i] && e.point1 === path[i + 1])
+                );
+                if (edge) pathEdges.push(edge);
+            }
+            return pathEdges;
+        }
+        
+        function draw() {
+            ctx.clearRect(0, 0, canvas.width, canvas.height);
+            
+            // Draw all edges first
+            edges.forEach(edge => edge.draw(false));
+            
+            // Draw path edges on top if there is a path
+            if (shortestPath.length > 0) {
+                const pathEdges = getPathEdges(shortestPath);
+                pathEdges.forEach(edge => edge.draw(true));
+            }
+            
+            // Draw all points last
+            points.forEach(point => point.draw());
+        }
+        
+        function getPointAt(x, y) {
+            return points.find(point => point.contains(x, y));
+        }
+        
+        function updateStatus() {
+            if (!startPoint && !endPoint) {
+                status.textContent = 'Status: Select starting point';
+            } else if (startPoint && !endPoint) {
+                status.textContent = `Status: Starting from ${startPoint.id}. Select destination point`;
+            } else if (startPoint && endPoint) {
+                const distance = shortestPath.length > 0 ? 
+                    dijkstra(startPoint).distances.get(endPoint) : 
+                    'No path found';
+                status.textContent = `Status: Path from ${startPoint.id} to ${endPoint.id}. Total distance: ${distance}`;
+            }
+        }
+        
+        canvas.addEventListener('click', (e) => {
+            const rect = canvas.getBoundingClientRect();
+            const x = e.clientX - rect.left;
+            const y = e.clientY - rect.top;
+            
+            const clickedPoint = getPointAt(x, y);
+            if (clickedPoint) {
+                if (!startPoint) {
+                    startPoint = clickedPoint;
+                    shortestPath = [];
+                } else if (!endPoint && clickedPoint !== startPoint) {
+                    endPoint = clickedPoint;
+                    const { previous } = dijkstra(startPoint);
+                    shortestPath = getPath(startPoint, endPoint, previous);
+                }
+                updateStatus();
+                draw();
+            }
+        });
+        
+        document.getElementById('clearBtn').addEventListener('click', () => {
+            startPoint = null;
+            endPoint = null;
+            shortestPath = [];
+            updateStatus();
+            draw();
+        });
+        
+        document.getElementById('loadBtn').addEventListener('click', () => {
+            try {
+                const data = JSON.parse(jsonInput.value);
+                points = data.points.map(p => new Point(p.x, p.y, p.id));
+                edges = data.edges.map(e => new Edge(
+                    points[e.point1],
+                    points[e.point2],
+                    e.weight
+                ));
+                startPoint = null;
+                endPoint = null;
+                shortestPath = [];
+                updateStatus();
+                draw();
+                status.textContent = 'Status: Graph loaded successfully. Select starting point';
+            } catch (error) {
+                status.textContent = 'Status: Error loading graph. Check your JSON format';
+            }
+        });
+        
+        status.textContent = 'Status: Waiting for graph data...';
+</script>
+</html>

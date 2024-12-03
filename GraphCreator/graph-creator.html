@@ -1,0 +1,299 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Graph Creator</title>
+    <style>
+        canvas {
+            border: 1px solid black;
+            cursor: crosshair;
+        }
+        .controls {
+            margin: 10px 0;
+        }
+        #output {
+            margin-top: 10px;
+            width: 100%;
+            height: 100px;
+        }
+        .instructions {
+            margin: 10px 0;
+            padding: 10px;
+            background-color: #f0f0f0;
+            border-radius: 4px;
+        }
+    </style>
+</head>
+<body>
+    <div class="instructions">
+        <strong>Instructions:</strong>
+        <ul>
+            <li>Left click: Create point / Deselect</li>
+            <li>Click point: Select point</li>
+            <li>Right click: Start/finish connection</li>
+            <li>Double click point: Edit label</li>
+            <li>Right click line: Edit weight</li>
+            <li>Delete/Backspace: Delete selected point or edge</li>
+            <li>Click edge: Select edge</li>
+        </ul>
+    </div>
+    <div class="controls">
+        <button id="saveBtn">Save JSON</button>
+        <button id="loadBtn">Load JSON</button>
+        <button id="clearBtn">Clear Canvas</button>
+    </div>
+    <canvas id="canvas" width="800" height="600"></canvas>
+    <textarea id="output" placeholder="JSON data will appear here"></textarea>
+</body>
+<script>
+    const canvas = document.getElementById('canvas');
+        const ctx = canvas.getContext('2d');
+        const output = document.getElementById('output');
+        
+        let points = [];
+        let edges = [];
+        let nextPointId = 65; // ASCII for 'A'
+        let selectedPoint = null;
+        let selectedEdge = null;
+        let connectingPoints = false;
+        let firstPoint = null;
+        
+        class Point {
+            constructor(x, y) {
+                this.x = x;
+                this.y = y;
+                this.id = String.fromCharCode(nextPointId++);
+                this.radius = 20;
+            }
+            
+            draw() {
+                ctx.beginPath();
+                ctx.arc(this.x, this.y, this.radius, 0, Math.PI * 2);
+                ctx.fillStyle = selectedPoint === this ? '#88f' : '#fff';
+                ctx.fill();
+                ctx.stroke();
+                
+                ctx.fillStyle = '#000';
+                ctx.textAlign = 'center';
+                ctx.textBaseline = 'middle';
+                ctx.font = '16px Arial';
+                ctx.fillText(this.id, this.x, this.y);
+            }
+            
+            contains(x, y) {
+                const dx = this.x - x;
+                const dy = this.y - y;
+                return dx * dx + dy * dy <= this.radius * this.radius;
+            }
+        }
+        
+        class Edge {
+            constructor(point1, point2) {
+                this.point1 = point1;
+                this.point2 = point2;
+                this.weight = 1;
+            }
+            
+            draw() {
+                ctx.beginPath();
+                ctx.moveTo(this.point1.x, this.point1.y);
+                ctx.lineTo(this.point2.x, this.point2.y);
+                ctx.strokeStyle = selectedEdge === this ? '#88f' : '#000';
+                ctx.lineWidth = selectedEdge === this ? 3 : 1;
+                ctx.stroke();
+                ctx.strokeStyle = '#000';
+                ctx.lineWidth = 1;
+                
+                const midX = (this.point1.x + this.point2.x) / 2;
+                const midY = (this.point1.y + this.point2.y) / 2;
+                ctx.fillStyle = '#fff';
+                ctx.fillRect(midX - 15, midY - 10, 30, 20);
+                ctx.strokeRect(midX - 15, midY - 10, 30, 20);
+                ctx.fillStyle = '#000';
+                ctx.textAlign = 'center';
+                ctx.textBaseline = 'middle';
+                ctx.fillText(this.weight, midX, midY);
+            }
+            
+            containsPoint(x, y) {
+                const tolerance = 10;
+                const A = this.point2.y - this.point1.y;
+                const B = this.point1.x - this.point2.x;
+                const C = this.point2.x * this.point1.y - this.point1.x * this.point2.y;
+                const distance = Math.abs(A * x + B * y + C) / Math.sqrt(A * A + B * B);
+                
+                if (distance > tolerance) return false;
+                
+                const minX = Math.min(this.point1.x, this.point2.x) - tolerance;
+                const maxX = Math.max(this.point1.x, this.point2.x) + tolerance;
+                const minY = Math.min(this.point1.y, this.point2.y) - tolerance;
+                const maxY = Math.max(this.point1.y, this.point2.y) + tolerance;
+                
+                return x >= minX && x <= maxX && y >= minY && y <= maxY;
+            }
+        }
+        
+        function deleteSelected() {
+            if (selectedPoint) {
+                edges = edges.filter(edge => 
+                    edge.point1 !== selectedPoint && edge.point2 !== selectedPoint
+                );
+                const index = points.indexOf(selectedPoint);
+                if (index > -1) {
+                    points.splice(index, 1);
+                }
+                selectedPoint = null;
+            } else if (selectedEdge) {
+                const index = edges.indexOf(selectedEdge);
+                if (index > -1) {
+                    edges.splice(index, 1);
+                }
+                selectedEdge = null;
+            }
+            draw();
+        }
+        
+        function draw() {
+            ctx.clearRect(0, 0, canvas.width, canvas.height);
+            edges.forEach(edge => edge.draw());
+            points.forEach(point => point.draw());
+        }
+        
+        function getPointAt(x, y) {
+            return points.find(point => point.contains(x, y));
+        }
+        
+        function getEdgeAt(x, y) {
+            return edges.find(edge => edge.containsPoint(x, y));
+        }
+        
+        canvas.addEventListener('click', (e) => {
+            const rect = canvas.getBoundingClientRect();
+            const x = e.clientX - rect.left;
+            const y = e.clientY - rect.top;
+            
+            const clickedPoint = getPointAt(x, y);
+            const clickedEdge = getEdgeAt(x, y);
+            
+            if (connectingPoints) {
+                connectingPoints = false;
+                firstPoint = null;
+                selectedPoint = null;
+                selectedEdge = null;
+                draw();
+                return;
+            }
+            
+            if (clickedPoint) {
+                selectedPoint = clickedPoint;
+                selectedEdge = null;
+            } else if (clickedEdge) {
+                selectedEdge = clickedEdge;
+                selectedPoint = null;
+            } else {
+                points.push(new Point(x, y));
+                selectedPoint = null;
+                selectedEdge = null;
+            }
+            draw();
+        });
+        
+        canvas.addEventListener('contextmenu', (e) => {
+            e.preventDefault();
+            const rect = canvas.getBoundingClientRect();
+            const x = e.clientX - rect.left;
+            const y = e.clientY - rect.top;
+            
+            const clickedPoint = getPointAt(x, y);
+            const clickedEdge = getEdgeAt(x, y);
+            
+            if (clickedEdge) {
+                const weight = prompt('Enter edge weight:', clickedEdge.weight);
+                if (weight !== null) {
+                    clickedEdge.weight = parseInt(weight) || 1;
+                    draw();
+                }
+                return;
+            }
+            
+            if (clickedPoint) {
+                if (!connectingPoints) {
+                    connectingPoints = true;
+                    firstPoint = clickedPoint;
+                    selectedPoint = clickedPoint;
+                    selectedEdge = null;
+                    draw();
+                } else {
+                    if (firstPoint !== clickedPoint) {
+                        edges.push(new Edge(firstPoint, clickedPoint));
+                        connectingPoints = false;
+                        firstPoint = null;
+                        selectedPoint = null;
+                        selectedEdge = null;
+                        draw();
+                    }
+                }
+            }
+        });
+        
+        canvas.addEventListener('dblclick', (e) => {
+            const rect = canvas.getBoundingClientRect();
+            const x = e.clientX - rect.left;
+            const y = e.clientY - rect.top;
+            
+            const clickedPoint = getPointAt(x, y);
+            if (clickedPoint) {
+                const newId = prompt('Enter point identifier:', clickedPoint.id);
+                if (newId !== null && newId.length > 0) {
+                    clickedPoint.id = newId;
+                    draw();
+                }
+            }
+        });
+        
+        document.addEventListener('keydown', (e) => {
+            if (e.key === 'Delete' || e.key === 'Backspace') {
+                deleteSelected();
+            }
+        });
+        
+        document.getElementById('saveBtn').addEventListener('click', () => {
+            const data = {
+                points: points.map(p => ({ x: p.x, y: p.y, id: p.id })),
+                edges: edges.map(e => ({
+                    point1: points.indexOf(e.point1),
+                    point2: points.indexOf(e.point2),
+                    weight: e.weight
+                }))
+            };
+            output.value = JSON.stringify(data, null, 2);
+        });
+        
+        document.getElementById('loadBtn').addEventListener('click', () => {
+            try {
+                const data = JSON.parse(output.value);
+                points = data.points.map(p => {
+                    const point = new Point(p.x, p.y);
+                    point.id = p.id;
+                    return point;
+                });
+                edges = data.edges.map(e => new Edge(points[e.point1], points[e.point2]));
+                draw();
+            } catch (error) {
+                alert('Invalid JSON data');
+            }
+        });
+        
+        document.getElementById('clearBtn').addEventListener('click', () => {
+            points = [];
+            edges = [];
+            nextPointId = 65;
+            selectedPoint = null;
+            selectedEdge = null;
+            draw();
+        });
+        
+        draw();
+</script>
+</html>
