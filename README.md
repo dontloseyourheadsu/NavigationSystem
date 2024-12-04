@@ -55,7 +55,7 @@ Este módulo permite cargar un grafo desde un archivo JSON y calcular la ruta m�
    - Selecciona el directorio `DijkstraPathFinding`.
    - Abre el archivo html.
    - Haz clic en el botón "Go Live".
-3. En la interfaz, utiliza el botón **Cargar Grafo** para importar el archivo JSON que generaste en el módulo GraphCreator.
+3. En la interfaz, utiliza el botón **Cargar Grafo** para importar el archivo JSON que generaste en el módulo GraphCreator (la información generada que se utilizó está ya guardada en udlap-data.json).
 4. Selecciona dos nodos en el grafo:
    - Uno como punto de inicio.
    - Otro como destino.
